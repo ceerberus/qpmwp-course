@@ -1,0 +1,153 @@
+############################################################################
+### QPMwP - HELPER FUNCTIONS
+############################################################################
+
+# --------------------------------------------------------------------------
+# Cyril Bachelard
+# This version:     16.02.2026
+# First version:    18.01.2025
+# --------------------------------------------------------------------------
+
+
+# Standard library imports
+import os
+import pickle
+from typing import Optional, Union, Any
+
+# Third party imports
+import numpy as np
+import pandas as pd
+
+
+
+
+
+def load_data_msci(path: Optional[str] = None, n: int = 24) -> dict[str, pd.DataFrame]:
+
+    '''
+    Loads daily total return series from 1999-01-01 to 2023-04-18
+    for MSCI country indices and for the MSCI World index.
+    '''
+
+    path = os.path.join(os.getcwd(), f'data{os.sep}') if path is None else path
+
+    # Load msci country index return series
+    df = pd.read_csv(os.path.join(path, 'msci_country_indices.csv'),
+                        index_col=0,
+                        header=0,
+                        parse_dates=True,
+                        date_format='%d-%m-%Y')
+    series_id = df.columns[0:n]
+    X = df[series_id]
+
+    # Load msci world index return series
+    y = pd.read_csv(f'{path}NDDLWI.csv',
+                    index_col=0,
+                    header=0,
+                    parse_dates=True,
+                    date_format='%d-%m-%Y')
+
+    return {'return_series': X, 'bm_series': y}
+
+
+
+def load_data_spi(path: Optional[str] = None) -> pd.Series:
+
+    '''
+    Loads daily total return series of the swiss performance index
+    '''
+
+    path = os.path.join(os.getcwd(), f'data{os.sep}') if path is None else path
+
+    # Load swiss performance index return series
+    df = pd.read_csv(os.path.join(path, 'spi_index.csv'),
+                        index_col=0,
+                        header=0,
+                        parse_dates=True,
+                        date_format='%d/%m/%Y')
+    df.index = pd.DatetimeIndex(df.index)
+    return df.squeeze()
+
+
+
+def load_pickle(filename: str,
+                path: Optional[str] = None) -> Union[Any, None]:
+    if path is not None:
+        filename = os.path.join(path, filename)
+    try:
+        with open(filename, "rb") as f:
+            return pickle.load(f)
+    except EOFError:
+        print("Error: Ran out of input. The file may be empty or corrupted.")
+        return None
+    except Exception as ex:
+        print("Error during unpickling object:", ex)
+    return None
+
+
+
+def to_numpy(data: Optional[Union[np.ndarray, pd.DataFrame, pd.Series]]) -> Optional[np.ndarray]:
+    return None if data is None else (
+        data.to_numpy() if hasattr(data, 'to_numpy') else data
+    )
+
+
+def simulate_correlated_gbm(mu, sigma, T=252, S0=None, random_seed=None) -> pd.DataFrame:
+    """
+    Simulate one path of correlated geometric Brownian motions.
+
+    Parameters
+    ----------
+    mu : ndarray (d,)
+        Drift vector.
+    sigma : ndarray (d, d)
+        Covariance matrix of Brownian motions.
+    T : int
+        Number of time steps.
+    S0 : ndarray (d,), optional
+        Initial values (default = ones).
+    random_seed : int, optional
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame of shape (T+1, d) with simulated paths.
+    """
+
+    if random_seed is not None:
+        np.random.seed(random_seed)
+
+    mu = np.asarray(mu)
+    sigma = np.asarray(sigma)
+    d = len(mu)
+
+    dt = 1/T
+
+    if S0 is None:
+        S0 = np.ones(d)
+    else:
+        S0 = np.asarray(S0)
+
+    # Cholesky decomposition
+    L = np.linalg.cholesky(sigma)
+
+    # Generate correlated Brownian increments
+    Z = np.random.normal(size=(T, d))
+    dW = np.sqrt(dt) * Z @ L.T
+
+    # Allocate path array
+    S = np.zeros((T + 1, d))
+    S[0] = S0
+
+    drift = (mu - 0.5 * np.diag(sigma)) * dt
+
+    # Simulate
+    for t in range(T):
+        S[t + 1] = S[t] * np.exp(drift + dW[t])
+
+    return pd.DataFrame(
+        S,
+        columns=[f"Asset_{i+1}" for i in range(d)]
+    )
+    
